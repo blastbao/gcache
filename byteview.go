@@ -4,8 +4,8 @@ import "time"
 
 // ByteView 一个不可变的字节数组视图
 type ByteView struct {
-	b      []byte
-	expire time.Time
+	b      []byte    // 数据
+	expire time.Time // 过期时间
 }
 
 func NewByteView(b []byte, expire time.Time) ByteView {

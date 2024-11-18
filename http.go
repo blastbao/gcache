@@ -64,6 +64,7 @@ func (p *HTTPPool) SetETCDRegistry(ctx context.Context, etcdAddrs ...string) err
 	if err != nil {
 		return err
 	}
+
 	p.peers = consistenthash.New(defaultReplicas, nil)
 	p.peers.Add(peers...)
 	p.httpGetters = make(map[string]*httpGetter, len(peers))
@@ -141,6 +142,7 @@ func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		panic("HTTPPool serving unexpected path: " + r.URL.Path)
 	}
 	p.Log("%s %s", r.Method, r.URL.Path)
+
 	// /<basePath>/<groupName>/<key>
 	parts := strings.SplitN(r.URL.Path[len(p.basePath):], "/", 2)
 	if len(parts) != 2 {
@@ -148,6 +150,7 @@ func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 命名空间(表)/键
 	groupName, key := parts[0], parts[1]
 	group := GetGroup(groupName)
 	if group == nil {
@@ -161,16 +164,20 @@ func (p *HTTPPool) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 获取键
+	// 获取值
 	view, err := group.Get(key)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// 提取过期时间
 	var expireNano int64
 	if !view.Expire().IsZero() {
 		expireNano = view.Expire().UnixNano()
 	}
+
+	// 返回
 	body, err := proto.Marshal(&pb.Response{
 		Value:  view.ByteSlice(),
 		Expire: expireNano,

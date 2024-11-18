@@ -23,25 +23,19 @@ func (f GetterFunc) Get(key string) (ByteView, error) {
 
 // Group 一个缓存命名空间
 type Group struct {
-	name      string
-	getter    Getter
-	mainCache *cache
-	hotCache  *cache
-	// 用于获取远程节点请求客户端
-	peers PeerPicker
-	// 避免对同一个key多次加载
-	loadGroup *singleflight.Group
-	// 避免对同一个key多次删除
-	removeGroup *singleflight.Group
-	// getter返回error时对应空值key的过期时间
-	emptyKeyDuration time.Duration
+	name             string              // 名称
+	getter           Getter              // 回源
+	mainCache        *cache              // 缓存
+	hotCache         *cache              // 缓存
+	peers            PeerPicker          // 用于获取远程节点请求客户端
+	loadGroup        *singleflight.Group // 避免对同一个key多次加载
+	removeGroup      *singleflight.Group // 避免对同一个key多次删除
+	emptyKeyDuration time.Duration       // getter返回error时对应空值key的过期时间
 }
 
 var (
-	// 对全局group操作的锁
-	mu sync.RWMutex
-	// 缓存全局的group
-	groups = make(map[string]*Group)
+	mu     sync.RWMutex              // 对全局group操作的锁
+	groups = make(map[string]*Group) // 缓存全局的group
 )
 
 // NewGroup 创建一个Group
@@ -85,7 +79,7 @@ func (g *Group) SetEmptyWhenError(duration time.Duration) {
 	g.emptyKeyDuration = duration
 }
 
-// SetHotCache 设置远程节点Hot Key-Value的缓存，避免频繁请求远程节点
+// SetHotCache 设置远程节点 Hot Key-Value 的缓存，避免频繁请求远程节点
 func (g *Group) SetHotCache(cacheBytes int) {
 	if cacheBytes <= 0 {
 		panic("hot cache must be greater than 0")
@@ -159,19 +153,21 @@ func (g *Group) Remove(key string) error {
 // 加载缓存
 func (g *Group) load(key string) (ByteView, error) {
 	view, err, _ := g.loadGroup.Do(key, func() (any, error) {
-		// 先判断是否需要从远程加载
+		// 是否有远程节点
 		if g.peers != nil {
-			// ok代表需要从远程加载
+			// key 是否归属某个 peer
 			if peer, ok := g.peers.PickPeer(key); ok {
+				// 从 peer 加载 key-value
 				value, err := g.loadFromPeer(peer, key)
 				if err == nil {
+					// 更新 hot cache
 					g.populateCache(key, value, g.hotCache)
 					return value, nil
 				}
 				log.Printf("[Cache] failed to get from peer key=%s, err=%v\n", key, err)
 			}
 		}
-		// 否则从本地加载
+		// 从本地加载
 		return g.loadLocally(key)
 	})
 	if err != nil {
@@ -182,16 +178,18 @@ func (g *Group) load(key string) (ByteView, error) {
 
 // 从本地节点加载缓存值
 func (g *Group) loadLocally(key string) (ByteView, error) {
+	// 回源
 	value, err := g.getter.Get(key)
 	if err != nil {
 		if g.emptyKeyDuration == 0 {
 			return ByteView{}, err
 		}
-		// 走缓存空值机制
+		// 不存在或者报错，缓存空值
 		value = ByteView{
 			expire: time.Now().Add(g.emptyKeyDuration),
 		}
 	}
+	// 缓存到 main cache
 	g.populateCache(key, value, g.mainCache)
 	return value, nil
 }
